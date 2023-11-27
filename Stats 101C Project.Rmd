@@ -1,0 +1,94 @@
+---
+title: "Stats 101C Project"
+output: pdf_document
+date: "2023-11-03"
+---
+
+## Question 1
+### (a)
+```{r Question 1a}
+SA_train <- read.csv('TrainSAData2.csv')
+SA_test <- read.csv('TestSAData2NoY.csv')
+dim(SA_train)
+dim(SA_test)
+```
+
+### (f)
+```{r Question 1f}
+library(ggplot2)
+library(GGally)
+for (i in 1:28) {
+  SA_train[,i][is.na(SA_train[,i])] <- mean(SA_train[,i], na.rm = TRUE) 
+}
+for (i in 1:27) {
+  SA_test[,i][is.na(SA_test[,i])] <- mean(SA_test[,i], na.rm = TRUE) 
+}
+imputeFunc <- function(x){
+  x <- as.factor(x)
+  sample(levels(x), sum(is.na(x)), replace = TRUE,
+         prob = as.numeric(table(x))/sum(!is.na(x)))   
+}
+
+SA_train[sapply(SA_train, is.na)]  <- unlist(sapply(SA_train, imputeFunc))
+SA_test[sapply(SA_test, is.na)]  <- unlist(sapply(SA_test, imputeFunc))
+```
+```{r variable selection}
+cor(SA_train[sapply(SA_train, is.numeric)])
+SA_train <- subset(SA_train, select = -weight)
+SA_train
+```
+
+## Question 2
+### (a)
+```{r Question 2a}
+library(MASS)
+library(crossval)
+library(glmnet)
+SA_train$Alcoholic.Status <- factor(SA_train$Alcoholic.Status)
+lr <- cv.glmnet(data.matrix(SA_train), SA_train$Alcoholic.Status, family = binomial())
+```
+
+```{r test crossval}
+probs <- predict(lr, data.matrix(SA_train))
+pred_logit <- rep('Y', length(probs))
+pred_logit[probs<=0] <- 'N'
+table(SA_train$Alcoholic.Status, pred_logit)
+mean(SA_train$Alcoholic.Status!=pred_logit)
+```
+
+Both these models are not as good
+```{r qda model}
+qda_model <- qda(factor(Alcoholic.Status)~., data=SA_train)
+table(Original=SA_train$Alcoholic.Status,Predicted=predict(qda_model)$class)
+mean(SA_train$Alcoholic.Status!=predict(qda_model)$class)
+```
+
+```{r lda model}
+lda_model <- lda(factor(Alcoholic.Status)~., data=SA_train)
+table(Original=SA_train$Alcoholic.Status,Predicted=predict(lda_model)$class)
+mean(SA_train$Alcoholic.Status!=predict(lda_model)$class)
+```
+
+```{r Decision tree model}
+library(tree)
+tree.sa <- 
+cv.sa =cv.tree(tree.sa,K=10)
+cv.sa
+```
+
+### (b)
+```{r Question 2b}
+report_results <- function(model) {
+  train_probs <- predict(model, data=SA_train, type='response')
+  train_pred_logit <- rep('Y', length(train_probs))
+  train_pred_logit[train_probs<=0.5] <- 'N'
+  print(table(train_pred_logit, SA_train$Alcoholic.Status))
+  print(mean(train_pred_logit!=SA_train$Alcoholic.Status))
+  test_probs <- predict(model, data= SA_train, newx = SA_test, type='response')
+  test_pred_logit <- rep('Y', length(test_probs))
+  test_pred_logit[test_probs<=0.5] <- 'N'
+  solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=test_pred_logit)
+  write.csv(solution, row.names = FALSE, 'solution.csv')
+}
+report_results(lr)
+```
