@@ -3,18 +3,15 @@ title: "Stats 101C Project"
 output: pdf_document
 date: "2023-11-03"
 ---
-
-## Question 1
-### (a)
-```{r Question 1a}
+```{r load data}
 SA_train <- read.csv('TrainSAData2.csv')
 SA_test <- read.csv('TestSAData2NoY.csv')
 dim(SA_train)
 dim(SA_test)
 ```
 
-### (f)
-```{r Question 1f}
+
+```{r impute missing vals}
 library(ggplot2)
 library(GGally)
 for (i in 1:28) {
@@ -32,28 +29,54 @@ imputeFunc <- function(x){
 SA_train[sapply(SA_train, is.na)]  <- unlist(sapply(SA_train, imputeFunc))
 SA_test[sapply(SA_test, is.na)]  <- unlist(sapply(SA_test, imputeFunc))
 ```
+
 ```{r variable selection}
-cor(SA_train[sapply(SA_train, is.numeric)])
+SA_train <- subset(SA_train, select = -ID)
 SA_train <- subset(SA_train, select = -weight)
-SA_train
+SA_train <- subset(SA_train, select = -tot_chole)
+SA_test <- subset(SA_test, select = -ID)
+SA_test <- subset(SA_test, select = -weight)
+SA_test <- subset(SA_test, select = -tot_chole)
+cor(SA_train[sapply(SA_train, is.numeric)])
+cor(SA_test[sapply(SA_test, is.numeric)])
 ```
 
-## Question 2
-### (a)
-```{r Question 2a}
+
+```{r Logistic Regression}
 library(MASS)
 library(crossval)
 library(glmnet)
 SA_train$Alcoholic.Status <- factor(SA_train$Alcoholic.Status)
-lr <- cv.glmnet(data.matrix(SA_train), SA_train$Alcoholic.Status, family = binomial())
+lr <- cv.glmnet(data.matrix(subset(SA_train, select = -Alcoholic.Status)), SA_train$Alcoholic.Status, family = binomial())
 ```
 
 ```{r test crossval}
-probs <- predict(lr, data.matrix(SA_train))
+probs <- predict(lr, data.matrix(subset(SA_train, select = -Alcoholic.Status)))
 pred_logit <- rep('Y', length(probs))
 pred_logit[probs<=0] <- 'N'
 table(SA_train$Alcoholic.Status, pred_logit)
 mean(SA_train$Alcoholic.Status!=pred_logit)
+probs <- predict(lr, data.matrix(SA_test))
+test_pred_logit <- rep('Y', length(probs))
+test_pred_logit[probs<=0] <- 'N'
+solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=test_pred_logit)
+write.csv(solution, row.names = FALSE, 'solution.csv')
+```
+
+```{r report results of log reg}
+report_results <- function(model) {
+  train_probs <- predict(model, data=SA_train, type='response')
+  train_pred_logit <- rep('Y', length(train_probs))
+  train_pred_logit[train_probs<=0.5] <- 'N'
+  print(table(train_pred_logit, SA_train$Alcoholic.Status))
+  print(mean(train_pred_logit!=SA_train$Alcoholic.Status))
+  test_probs <- predict(model, data=SA_train, newdata =SA_test, type='response')
+  test_pred_logit <- rep('Y', length(test_probs))
+  test_pred_logit[test_probs<=0.5] <- 'N'
+  solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=test_pred_logit)
+  write.csv(solution, row.names = FALSE, 'solution.csv')
+}
+report_results(lr)
 ```
 
 Both these models are not as good
@@ -71,24 +94,40 @@ mean(SA_train$Alcoholic.Status!=predict(lda_model)$class)
 
 ```{r Decision tree model}
 library(tree)
-tree.sa <- 
+tree.sa <- tree(Alcoholic.Status~., SA_train)
 cv.sa =cv.tree(tree.sa,K=10)
 cv.sa
 ```
 
-### (b)
-```{r Question 2b}
-report_results <- function(model) {
-  train_probs <- predict(model, data=SA_train, type='response')
-  train_pred_logit <- rep('Y', length(train_probs))
-  train_pred_logit[train_probs<=0.5] <- 'N'
-  print(table(train_pred_logit, SA_train$Alcoholic.Status))
-  print(mean(train_pred_logit!=SA_train$Alcoholic.Status))
-  test_probs <- predict(model, data= SA_train, newx = SA_test, type='response')
-  test_pred_logit <- rep('Y', length(test_probs))
-  test_pred_logit[test_probs<=0.5] <- 'N'
-  solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=test_pred_logit)
-  write.csv(solution, row.names = FALSE, 'solution.csv')
-}
-report_results(lr)
+```{r check decision tree accuracy}
+summary(tree.sa)
+preds = predict(tree.sa, SA_train, type = "class")
+table(preds, SA_train$Alcoholic.Status)
 ```
+```{r Random Forest tuning}
+library(randomForest)
+tuned <- tuneRF(
+               x=subset(SA_train, select = -Alcoholic.Status), #define predictor variables
+               y=SA_train$Alcoholic.Status, #define response variable
+               ntreeTry=150,
+               mtryStart=10, 
+               stepFactor=1.25,
+               improve=0.01,
+               trace=FALSE #don't show real-time progress
+               )
+summary(tuned)
+```
+```{r rf model}
+rf_model <- randomForest(Alcoholic.Status~.,SA_train, mtry = 12)
+rf_model
+```
+```{r check rf}
+preds <- predict(rf_model, newdata = SA_test)
+solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=preds)
+write.csv(solution, row.names = FALSE, 'solution.csv')
+```
+
+```{r check tree}
+summary(tree.sa)
+```
+
