@@ -31,11 +31,11 @@ library(GGally)
 library(mice)
 for (i in 1:28) {
   if (is.numeric(SA_train[,i]))
-    SA_train[,i][is.na(SA_train[,i])] <- median(SA_train[,i], na.rm = TRUE) 
+    SA_train[,i][is.na(SA_train[,i])] <- mean(SA_train[,i], na.rm = TRUE) 
 }
 for (i in 1:27) {
   if (is.numeric(SA_test[,i]))
-    SA_test[,i][is.na(SA_test[,i])] <- median(SA_test[,i], na.rm = TRUE) 
+    SA_test[,i][is.na(SA_test[,i])] <- mean(SA_test[,i], na.rm = TRUE) 
 }
 # temp_train <- mice(SA_train,m=5,maxit=5,meth='cart',seed=500)
 # temp_test <- mice(SA_test,m=5,maxit=5,meth='cart',seed=500)
