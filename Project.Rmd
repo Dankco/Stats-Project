@@ -6,10 +6,23 @@ date: "2023-11-03"
 ```{r load data}
 SA_train <- read.csv('TrainSAData2.csv')
 SA_test <- read.csv('TestSAData2NoY.csv')
+SA_train$sex <- factor(SA_train$sex)
+SA_test$sex <- factor(SA_test$sex)
+SA_train$hear_left <- factor(SA_train$hear_left)
+SA_train$hear_right <- factor(SA_train$hear_right)
+SA_test$hear_left <- factor(SA_test$hear_left)
+SA_test$hear_right <- factor(SA_test$hear_right)
+SA_train$urine_protein <- factor(SA_train$urine_protein)
+SA_test$urine_protein <- factor(SA_test$urine_protein)
+SA_train$AGE.Category <- factor(SA_train$AGE.Category)
+SA_test$AGE.Category <- factor(SA_test$AGE.Category)
+SA_train$Smoking.Status <- factor(SA_train$Smoking.Status)
+SA_test$Smoking.Status <- factor(SA_test$Smoking.Status)
+SA_train$Alcoholic.Status <- factor(SA_train$Alcoholic.Status)
+SA_train$BMI.Category <- factor(SA_train$BMI.Category)
+SA_test$BMI.Category <- factor(SA_test$BMI.Category)
 dim(SA_train)
 dim(SA_test)
-colSums(is.na(SA_train))
-colSums(is.na(SA_test))
 ```
 
 ```{r impute missing vals}
@@ -17,22 +30,24 @@ library(ggplot2)
 library(GGally)
 library(mice)
 for (i in 1:28) {
-   SA_train[,i][is.na(SA_train[,i])] <- mean(SA_train[,i], na.rm = TRUE) 
+  if (is.numeric(SA_train[,i]))
+    SA_train[,i][is.na(SA_train[,i])] <- median(SA_train[,i], na.rm = TRUE) 
 }
 for (i in 1:27) {
-   SA_test[,i][is.na(SA_test[,i])] <- mean(SA_test[,i], na.rm = TRUE) 
+  if (is.numeric(SA_test[,i]))
+    SA_test[,i][is.na(SA_test[,i])] <- median(SA_test[,i], na.rm = TRUE) 
 }
 # temp_train <- mice(SA_train,m=5,maxit=5,meth='cart',seed=500)
 # temp_test <- mice(SA_test,m=5,maxit=5,meth='cart',seed=500)
 ```
 
 ```{r complete imputation}
-SA_train <- complete(temp_train)
-SA_test <- complete(temp_test)
+# SA_train <- complete(temp_train)
+# SA_test <- complete(temp_test)
 ```
 
 ```{r impute categorical vals}
-set.seed(1000)
+set.seed(500)
 imputeFunc <- function(x){
   x <- as.factor(x)
   sample(levels(x), sum(is.na(x)), replace = TRUE,
@@ -41,7 +56,6 @@ imputeFunc <- function(x){
 
 SA_train[sapply(SA_train, is.na)]  <- unlist(sapply(SA_train, imputeFunc))
 SA_test[sapply(SA_test, is.na)]  <- unlist(sapply(SA_test, imputeFunc))
-SA_train$Alcoholic.Status <- factor(SA_train$Alcoholic.Status)
 ```
 
 ```{r variable selection}
@@ -88,7 +102,6 @@ report_results <- function(model) {
   solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=test_pred_logit)
   write.csv(solution, row.names = FALSE, 'solution.csv')
 }
-report_results(lr)
 ```
 
 Both these models are not as good
@@ -107,8 +120,6 @@ mean(SA_train$Alcoholic.Status!=predict(lda_model)$class)
 ```{r Decision tree model}
 library(tree)
 tree.sa <- tree(Alcoholic.Status~., SA_train)
-cv.sa =cv.tree(tree.sa,K=10)
-cv.sa
 ```
 
 ```{r check decision tree accuracy}
@@ -132,6 +143,7 @@ summary(tuned)
 ```
 
 ```{r rf model}
+library(randomForest)
 rf_model <- randomForest(Alcoholic.Status~.,SA_train, ntree = 500, mtry = 4)
 rf_model
 ```
@@ -142,7 +154,69 @@ solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=preds)
 write.csv(solution, row.names = FALSE, 'solution.csv')
 ```
 
-```{r check tree}
-summary(tree.sa)
+```{r another rf}
+rf_model2 <- randomForest(Alcoholic.Status~.,SA_train, ntree = 500, mtry = 5)
+rf_model2
 ```
 
+
+```{r select vars}
+initial_model <- glm(Alcoholic.Status~1, data=SA_train, family=binomial())
+all_model <- glm(Alcoholic.Status~., data=SA_train, family=binomial())
+step(initial_model, direction = 'forward', scope = formula(all_model), trace=0, k = log(70000))
+reduced_model <- glm(formula = Alcoholic.Status ~ height + Smoking.Status + age + 
+    gamma_GTP + HDL_chole + sex + SGOT_ALT + DBP + triglyceride + 
+    SGOT_AST + hemoglobin + AGE.Category + LDL_chole + BMI, family = binomial(), 
+    data = SA_train)
+report_results(reduced_model)
+```
+
+```{r create SVM}
+library(e1071)
+svmfit=svm(Alcoholic.Status ~ height + Smoking.Status + age + 
+    gamma_GTP + HDL_chole + sex + SGOT_ALT + DBP + triglyceride + 
+    SGOT_AST + hemoglobin + AGE.Category + LDL_chole + BMI,data=SA_train,kernel="linear", gamma=0.8)
+preds=predict(svmfit)
+table(preds,SA_train$Alcoholic.Status)
+mean(preds!=SA_train$Alcoholic.Status)
+```
+```{r transform categorical vars}
+SA_train$Alcoholic.Status<- ifelse(SA_train$Alcoholic.Status == "Y", 0, 1)
+#SA_train$sex<- ifelse(SA_train$sex == "Male", 0, 1)
+#SA_train$hear_left<- ifelse(SA_train$hear_left == "Normal", 0, 1)
+#SA_train$hear_right<- ifelse(SA_train$hear_right == "Normal", 0, 1)
+#SA_train$Smoking.Status<- ifelse(SA_train$Smoking.Status == "Still Smoking", 0, 1)
+```
+
+```{r GBM model}
+library(gbm)
+gbm_model <- gbm(Alcoholic.Status~., data = SA_train, distribution="bernoulli",n.trees =1000 , interaction.depth =4)
+summary(gbm_model)
+preds=predict(gbm_model,data=SA_train,n.trees = 1000,type = "response")
+pred_logit<- ifelse(preds<0.5,0,1)
+table(SA_train$Alcoholic.Status,pred_logit)
+mean(SA_train$Alcoholic.Status!=pred_logit)
+```
+
+```{r Model Predictions}
+lr_probs <- predict(lr, data.matrix(SA_test))
+lr_pred_logit <- rep('Y', length(lr_probs))
+lr_pred_logit[lr_probs<=0.5] <- 'N'
+rf_preds <- predict(rf_model, newdata = SA_test)
+lda_preds <- predict(lda_model, newdata = SA_test)$class
+qda_preds <- predict(qda_model, newdata = SA_test)$class
+tree_preds <- predict(tree.sa, newdata = SA_test)
+# svm_preds <- predict(svmfit, newdata = SA_test)
+rf2_preds <- predict(rf_model2, newdata=SA_test)
+rf3_preds <- predict(rf_model3, newdata=SA_test)
+
+gbm_probs <- predict(gbm_model, newdata = SA_test, n.trees = 1000, type = "response")
+gbm_preds <- ifelse(gbm_probs<0.5,'Y','N')
+```
+
+```{r models combined}
+unified_df <- data.frame("rf" = rf_preds, "gbm" = gbm_preds)
+unified_preds <- apply(unified_df, 1, function(x) names(which.max(table(x))))
+solution <- data.frame("ID" = c(1:30000), Alcoholic.Status=unified_preds)
+write.csv(solution, row.names = FALSE, 'unified_solution.csv')
+```
